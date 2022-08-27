@@ -95,10 +95,10 @@ class Helper {
 		if(empty($contact_form)){ // null, false, 0 and other PHP falsey values
 			return $current_contact_form;
 		}
-		if($contact_form instanceof WPCF7_ContactForm){
+		if($contact_form instanceof \WPCF7_ContactForm){
 			return $contact_form;
 		}
-		if(is_numeric($contact_form) or $contact_form instanceof WP_Post){
+		if(is_numeric($contact_form) or $contact_form instanceof \WP_Post){
 			$contact_form = wpcf7_contact_form($contact_form); // replace the current contact form
 			if(!is_null($current_contact_form)){
 				wpcf7_contact_form($current_contact_form->id()); // restore the current contact form
@@ -266,7 +266,7 @@ class Helper {
 		if($skip_mail){
 			return true;
 		}
-		$result = WPCF7_Mail::send($contact_form->prop('mail'), 'mail');
+		$result = \WPCF7_Mail::send($contact_form->prop('mail'), 'mail');
 		if(!$result){
 			return false;
 		}
@@ -276,7 +276,7 @@ class Helper {
 		}
 		$additional_mail = apply_filters('wpcf7_additional_mail', $additional_mail, $contact_form);
 		foreach($additional_mail as $name => $template){
-			WPCF7_Mail::send($template, $name);
+			\WPCF7_Mail::send($template, $name);
 		}
 		return true;
 	}
@@ -298,11 +298,11 @@ class Helper {
 	 * @return WPCF7_Submission|null
 	 */
 	public static function cf7_submission($submission = null){
-		$current_submission = WPCF7_Submission::get_instance();
+		$current_submission = \WPCF7_Submission::get_instance();
 		if(empty($submission)){ // null, false, 0 and other PHP falsey values
 			return $current_submission;
 		}
-		if($submission instanceof WPCF7_Submission){
+		if($submission instanceof \WPCF7_Submission){
 			return $submission;
 		}
 		return null;
@@ -312,7 +312,7 @@ class Helper {
 	 * @return bool
 	 */
 	public static function cf7_tag_has_data_option($tag = null){
-		if(!$tag instanceof WPCF7_FormTag){
+		if(!$tag instanceof \WPCF7_FormTag){
 			return false;
 		}
 		return ($tag->get_data_option() ? true : false);
@@ -322,7 +322,7 @@ class Helper {
 	 * @return bool
 	 */
 	public static function cf7_tag_has_free_text($tag = null){
-		if(!$tag instanceof WPCF7_FormTag){
+		if(!$tag instanceof \WPCF7_FormTag){
 			return false;
 		}
 		return $tag->has_option('free_text');
@@ -332,10 +332,10 @@ class Helper {
 	 * @return bool
 	 */
 	public static function cf7_tag_has_pipes($tag = null){
-		if(!$tag instanceof WPCF7_FormTag){
+		if(!$tag instanceof \WPCF7_FormTag){
 			return false;
 		}
-		if(WPCF7_USE_PIPE and $tag->pipes instanceof WPCF7_Pipes and !$tag->pipes->zero()){
+		if(WPCF7_USE_PIPE and $tag->pipes instanceof \WPCF7_Pipes and !$tag->pipes->zero()){
 			$pipes = $tag->pipes->to_array();
 			foreach($pipes as $pipe){
 				if($pipe[0] !== $pipe[1]){
@@ -351,7 +351,6 @@ class Helper {
 	// Contact Form 7 -->
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 
 	/**
 	 * @return string|WP_Error
@@ -390,7 +389,7 @@ class Helper {
 		if(empty($message)){
 			$message = __('Something went wrong.');
 		}
-		return new WP_Error('error', $message, $data);
+		return new \WP_Error('error', $message, $data);
 	}
 
 	/**
