@@ -20,7 +20,7 @@ class Helper {
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	private static $admin_notices = [], $custom_login_logo = [], $cf7_posted_data = [];
+	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [];
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -78,7 +78,7 @@ class Helper {
 	}
 
 	/**
-	 * @return void
+	 * @return false|WP_User|WP_error
 	 */
 	public static function authenticate($user, $username_or_email){
 		if(!is_null($user)){
@@ -87,7 +87,7 @@ class Helper {
 		if(is_email($username_or_email)){
 			$user = get_user_by('email', $username_or_email);
 		}
-		if(is_null($user)){
+		if(!$user){
 			$user = get_user_by('login', $username_or_email);
 		}
 		return $user;
@@ -223,6 +223,17 @@ class Helper {
 			}
 		}
 		return $invalid;
+	}
+
+	/**
+	 * @return bool
+	 */
+	public static function cf7_is_false($name = '', $contact_form = null){
+		$contact_form = self::cf7_contact_form($contact_form);
+		if(is_null($contact_form)){
+			return false;
+		}
+		return self::is_false(self::cf7_pref($name, $contact_form));
 	}
 
 	/**
@@ -694,7 +705,8 @@ class Helper {
 	 * @return bool
 	 */
 	public static function is_mysql_date($subject = ''){
-        return preg_match('/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/', $subject);
+		$pattern = '/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/';
+        return preg_match($pattern, $subject);
 	}
 
 	/**
@@ -808,14 +820,14 @@ class Helper {
     }
 
 	/**
-	 * @return void
+	 * @return string
 	 */
 	public static function login_headertext($login_header_text){
 		return get_option('blogname');
 	}
 
 	/**
-	 * @return void
+	 * @return string
 	 */
 	public static function login_headerurl($login_header_url){
 		return home_url();
@@ -915,6 +927,118 @@ class Helper {
             'item_updated' => $singular . ' updated.',
         ];
     }
+
+	/**
+	 * @return string
+	 */
+	public static function remote_country(){
+		switch(true){
+			case !empty($_SERVER['HTTP_CF_IPCOUNTRY']):
+				$country = $_SERVER['HTTP_CF_IPCOUNTRY'];
+				break;
+			case is_callable(['wfUtils', 'IP2Country']):
+				$country = wfUtils::IP2Country(self::remote_ip());
+				break;
+			default:
+				$country = '';
+		}
+		return strtoupper($country);
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function remote_ip(){
+		switch(true){
+			case !empty($_SERVER['HTTP_CF_CONNECTING_IP']):
+				$ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+				break;
+			case is_callable(['wfUtils', 'getIP']):
+				$ip = wfUtils::getIP();
+				break;
+			case !empty($_SERVER['HTTP_X_FORWARDED_FOR']):
+				$ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
+				break;
+			case !empty($_SERVER['HTTP_X_REAL_IP']):
+				$ip = $_SERVER['HTTP_X_REAL_IP'];
+				break;
+			case !empty($_SERVER['REMOTE_ADDR']):
+				$ip = $_SERVER['REMOTE_ADDR'];
+				break;
+			default:
+				return '';
+		}
+		if(false === strpos($ip, ',')){
+			$ip = trim($ip);
+		} else {
+			$ip = explode(',', $ip);
+			$ip = array_map('trim', $ip);
+			$ip = array_filter($ip);
+			if(!$ip){
+				return '';
+			}
+			$ip = $ip[0];
+		}
+		if(!WP_Http::is_ip_address($ip)){
+			return '';
+		}
+		return $ip;
+	}
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_request($method = '', $url = '', $args = []){
+		$args = self::sanitize_remote_args($args);
+		$args['method'] = strtoupper($method);
+		if(!self::seems_wp_http_request($args, true)){
+			return self::error(__('Invalid request method.'));
+		}
+		if(empty($args['user-agent']) and !empty($_SERVER['HTTP_USER_AGENT'])){
+			$args['user-agent'] = $_SERVER['HTTP_USER_AGENT'];
+		}
+		$response = wp_remote_request($url, $args);
+		if(is_wp_error($response)){
+			return $response;
+		}
+		$body = wp_remote_retrieve_body($response);
+		$code = wp_remote_retrieve_response_code($response);
+		$headers = wp_remote_retrieve_headers($response);
+		$request = new \WP_REST_Request($method);
+		$request->set_body($body);
+		$request->set_headers($headers);
+		$is_valid = $request->has_valid_params();
+		if(is_wp_error($is_valid)){
+			return $is_valid; // regardless of the response code
+		}
+		$is_json = $request->is_json_content_type();
+		$json_params = [];
+		if($is_json){
+			$json_params = $request->get_json_params();
+			$error = self::seems_wp_error($json_params);
+			if(is_wp_error($error)){
+				return $error; // regardless of the response code
+			}
+		}
+		if($code >= 200 and $code < 300){
+			if($is_json){
+				return $json_params;
+			}
+			return $body;
+		}
+		$message = wp_remote_retrieve_response_message($response);
+		if(empty($message)){
+			$message = get_status_header_desc($code);
+		}
+		if(empty($message)){
+			$message = __('Something went wrong.');
+		}
+		return self::error($message, [
+			'body' => $body,
+			'headers' => $headers,
+			'status' => $code,
+		]);
+	}
 
 	/**
 	 * @return string
