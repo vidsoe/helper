@@ -20,7 +20,7 @@ class Helper {
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	private static $admin_notices = [], $cf7_posted_data = [];
+	private static $admin_notices = [], $custom_login_logo = [], $cf7_posted_data = [];
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -35,10 +35,9 @@ class Helper {
 		$html = self::admin_notice_html($message, $class, $is_dismissible);
         $md5 = md5($html);
         self::$admin_notices[$md5] = $html;
-		if(has_action('admin_notices', [__CLASS__, 'admin_notices'])){
-			return;
+		if(!has_action('admin_notices', [__CLASS__, 'admin_notices'])){
+			add_action('admin_notices', [__CLASS__, 'admin_notices']);
 		}
-		add_action('admin_notices', [__CLASS__, 'admin_notices']);
 	}
 
 	/**
@@ -64,11 +63,64 @@ class Helper {
 	}
 
 	/**
+	 * @return bool
+	 */
+   	public static function array_keys_exist($keys = [], $array = []){
+		if(!is_array($keys) or !is_array($array)){
+            return false;
+        }
+        foreach($keys as $key){
+            if(!array_key_exists($key, $array)){
+                return false;
+            }
+        }
+        return true;
+	}
+
+	/**
+	 * @return void
+	 */
+	public static function authenticate($user, $username_or_email){
+		if(!is_null($user)){
+			return $user;
+		}
+		if(is_email($username_or_email)){
+			$user = get_user_by('email', $username_or_email);
+		}
+		if(is_null($user)){
+			$user = get_user_by('login', $username_or_email);
+		}
+		return $user;
+	}
+
+	/**
+	 * @return string
+	 */
+   	public static function base64_urldecode($data = '', $strict = false){
+        return base64_decode(strtr($data, '-_', '+/'), $strict);
+    }
+
+	/**
+	 * @return string
+	 */
+   	public static function base64_urlencode($data = ''){
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+	/**
 	 * @return string
 	 */
    	public static function basename($path = '', $suffix = ''){
 		return wp_basename(preg_replace('/\?.*/', '', $path), $suffix);
 	}
+
+	/**
+	 * @return string
+	 */
+   	public static function canonicalize($key = ''){
+        $key = sanitize_title($key);
+        return \WP_REST_Request::canonicalize_header_name($key);
+    }
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -353,6 +405,67 @@ class Helper {
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 	/**
+	 * @return WP_Role|null
+	 */
+   	public static function clone_role($source = '', $destination = '', $display_name = ''){
+        $role = get_role($source);
+        if(is_null($role)){
+            return null;
+        }
+        $destination = self::canonicalize($destination);
+        return add_role($destination, $display_name, $role->capabilities);
+    }
+
+	/**
+	 * @return bool
+	 */
+   	public static function current_screen_in($ids = []){
+        global $current_screen;
+        if(!is_array($ids)){
+            return false;
+        }
+        if(!isset($current_screen)){
+            return false;
+        }
+        return in_array($current_screen->id, $ids);
+    }
+
+	/**
+	 * @return bool
+	 */
+   	public static function current_screen_is($id = ''){
+        global $current_screen;
+        if(!is_string($id)){
+            return false;
+        }
+        if(!isset($current_screen)){
+            return false;
+        }
+        return ($current_screen->id === $id);
+    }
+
+	/**
+	 * @return bool|WP_Error
+	 */
+	public static function custom_login_logo($attachment_id = 0, $half = true){
+        if(!wp_attachment_is_image($attachment_id)){
+            return self::error(__('File is not an image.'));
+        }
+		$custom_logo = wp_get_attachment_image_src($attachment_id, 'medium');
+		$height = $custom_logo[2];
+		$width = $custom_logo[1];
+		if($half){
+			$height = $height / 2;
+			$width = $width / 2;
+		}
+		self::$custom_login_logo = [$custom_logo[0], $width, $height];
+		if(!has_action('login_enqueue_scripts', [__CLASS__, 'login_enqueue_scripts'])){
+			add_action('login_enqueue_scripts', [__CLASS__, 'login_enqueue_scripts']);
+		}
+        return true;
+    }
+
+	/**
 	 * @return string|WP_Error
 	 */
 	public static function dir_to_url($path = ''){
@@ -395,6 +508,135 @@ class Helper {
 	/**
 	 * @return string
 	 */
+	public static function fa_file_type($post = null){
+        if('attachment' !== get_post_status($post)){
+			return '';
+		}
+		if(wp_attachment_is('audio', $post)){
+			return 'audio';
+		}
+		if(wp_attachment_is('image', $post)){
+			return 'image';
+		}
+		if(wp_attachment_is('video', $post)){
+			return 'video';
+		}
+		$type = get_post_mime_type($post);
+		switch($type){
+			case 'application/zip':
+			case 'application/x-rar-compressed':
+			case 'application/x-7z-compressed':
+			case 'application/x-tar':
+				return 'archive';
+				break;
+			case 'application/vnd.ms-excel':
+			case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+				return 'excel';
+				break;
+			case 'application/pdf':
+				return 'pdf';
+				break;
+			case 'application/vnd.ms-powerpoint':
+			case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+				return 'powerpoint';
+				break;
+			case 'application/msword':
+			case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+				return 'word';
+				break;
+			default:
+				return 'file';
+		}
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function first_p($text = '', $dot = true){
+        return self::one_p($text, $dot, 'first');
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function format_function($function_name = '', $args = []){
+        $str = '<div style="color: #24831d; font-family: monospace; font-weight: 400;">' . $function_name . '(';
+        $function_args = [];
+        foreach($args as $arg){
+            $arg = shortcode_atts([
+                'default' => 'null',
+                'name' => '',
+                'type' => '',
+            ], $arg);
+            if($arg['default'] and $arg['name'] and $arg['type']){
+                $function_args[] = '<span style="color: #cd2f23; font-family: monospace; font-style: italic; font-weight: 400;">' . $arg['type'] . '</span> <span style="color: #0f55c8; font-family: monospace; font-weight: 400;">$' . $arg['name'] . '</span> = <span style="color: #000; font-family: monospace; font-weight: 400;">' . $arg['default'] . '</span>';
+            }
+        }
+        if($function_args){
+            $str .= ' ' . implode(', ', $function_args) . ' ';
+        }
+        $str .= ')</div>';
+		return $str;
+    }
+
+	/**
+	 * @return int
+	 */
+	public static function get_memory_size(){
+        if(!function_exists('exec')){
+			$current_limit = ini_get('memory_limit');
+			$current_limit_int = wp_convert_hr_to_bytes($current_limit);
+            return $current_limit_int;
+        }
+        exec('free -b', $output);
+        $output = sanitize_text_field($output[1]);
+        $output = explode(' ', $output);
+        return (int) $output[1];
+    }
+
+	/**
+	 * @return array
+	 */
+	public static function get_posts_query($args = null){
+        $defaults = [
+			'category' => 0,
+			'exclude' => [],
+			'include' => [],
+			'meta_key' => '',
+			'meta_value' => '',
+			'numberposts' => 5,
+			'order' => 'DESC',
+			'orderby' => 'date',
+			'post_type' => 'post',
+			'suppress_filters' => true,
+		];
+		$parsed_args = wp_parse_args($args, $defaults);
+		if(empty($parsed_args['post_status'])){
+			$parsed_args['post_status'] = ('attachment' === $parsed_args['post_type']) ? 'inherit' : 'publish';
+		}
+		if(!empty($parsed_args['numberposts']) and empty($parsed_args['posts_per_page'])){
+			$parsed_args['posts_per_page'] = $parsed_args['numberposts'];
+		}
+		if(!empty($parsed_args['category'])){
+			$parsed_args['cat'] = $parsed_args['category'];
+		}
+		if(!empty($parsed_args['include'])){
+			$incposts = wp_parse_id_list($parsed_args['include']);
+			$parsed_args['posts_per_page'] = count($incposts);  // Only the number of posts included.
+			$parsed_args['post__in'] = $incposts;
+		} elseif(!empty($parsed_args['exclude'])){
+			$parsed_args['post__not_in'] = wp_parse_id_list($parsed_args['exclude']);
+		}
+		$parsed_args['ignore_sticky_posts'] = true;
+		$parsed_args['no_found_rows'] = true;
+		$query = new WP_Query;
+		$query->query($parsed_args);
+		return $query;
+    }
+
+	/**
+	 * @return string
+	 */
 	public static function implode_and($array = [], $and = '&'){
 		if(empty($array)){
 			return '';
@@ -420,11 +662,107 @@ class Helper {
 	/**
 	 * @return bool
 	 */
+	public static function is_doing_heartbeat(){
+        return (wp_doing_ajax() and isset($_POST['action']) and 'heartbeat' === $_POST['action']);
+    }
+
+	/**
+	 * @return bool
+	 */
+	public static function is_false($data = ''){
+        return in_array((string) $data, ['0', 'false', 'off'], true);
+    }
+
+	/**
+	 * @return bool
+	 */
+	public static function is_google_workspace($email = ''){
+		if(!is_email($email)){
+			return false;
+		}
+		list($local, $domain) = explode('@', $email, 2);
+		if('gmail.com' === strtolower($domain)){
+			return true;
+		}
+		if(!getmxrr($domain, $mxhosts)){
+			return false;
+		}
+		return in_array('aspmx.l.google.com', $mxhosts);
+    }
+
+	/**
+	 * @return bool
+	 */
+	public static function is_mysql_date($subject = ''){
+        return preg_match('/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/', $subject);
+	}
+
+	/**
+	 * @return bool
+	 */
 	public static function is_plugin_active($plugin = ''){
-        if(!function_exists('is_plugin_active')){
-            require_once(ABSPATH . 'wp-admin/includes/plugin.php');
+		if(!function_exists('is_plugin_active')){
+			require_once(ABSPATH . 'wp-admin/includes/plugin.php');
+		}
+		return is_plugin_active($plugin);
+	}
+
+	/**
+	 * @return bool
+	 */
+	public static function is_post_revision_or_auto_draft($post = null){
+        return (wp_is_post_revision($post) or 'auto-draft' === get_post_status($post));
+    }
+
+	/**
+	 * @return bool
+	 */
+	public static function is_true($data = ''){
+        return in_array((string) $data, ['1', 'on', 'true'], true);
+    }
+
+	/**
+	 * @return array
+	 */
+	public static function ksort_deep($array = []){
+        if(!self::is_array_assoc($array)){
+            return [];
         }
-        return is_plugin_active($plugin);
+        ksort($array);
+        foreach($array as $key => $value){
+            $array[$key] = self::ksort_deep($value);
+        }
+        return $array;
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function last_p($text = '', $dot = true){
+        return self::one_p($text, $dot, 'last');
+    }
+
+	/**
+	 * @return array
+	 */
+	public static function list_pluck($list = [], $index_key = ''){
+		$newlist = [];
+		foreach($list as $value){
+			if(is_object($value)){
+				if(isset($value->$index_key)){
+					$newlist[$value->$index_key] = $value;
+				} else {
+					$newlist[] = $value;
+				}
+			} else {
+				if(isset($value[$index_key])){
+					$newlist[$value[$index_key]] = $value;
+				} else {
+					$newlist[] = $value;
+				}
+			}
+		}
+		return $newlist;
     }
 
 	/**
@@ -438,6 +776,152 @@ class Helper {
 		$ver = filemtime($file);
 		self::enqueue($handle, $src, $deps, $ver, true);
 	}
+
+	/**
+	 * @return void
+	 */
+	public static function local_login_header(){
+		if(!has_action('login_headertext', [__CLASS__, 'login_headertext'])){
+			add_action('login_headertext', [__CLASS__, 'login_headertext']);
+		}
+		if(!has_action('login_headerurl', [__CLASS__, 'login_headerurl'])){
+			add_action('login_headerurl', [__CLASS__, 'login_headerurl']);
+		}
+    }
+
+	/**
+	 * @return void
+	 */
+   	public static function login_enqueue_scripts(){
+        if(empty(self::$custom_login_logo)){
+			return;
+		} ?>
+		<style type="text/css">
+			#login h1 a,
+			.login h1 a {
+				background-image: url(<?php echo self::$custom_login_logo[0]; ?>);
+				background-size: <?php echo self::$custom_login_logo[1]; ?>px <?php echo self::$custom_login_logo[2]; ?>px;
+				height: <?php echo self::$custom_login_logo[2]; ?>px;
+				width: <?php echo self::$custom_login_logo[1]; ?>px;
+			}
+		</style><?php
+    }
+
+	/**
+	 * @return void
+	 */
+	public static function login_headertext($login_header_text){
+		return get_option('blogname');
+	}
+
+	/**
+	 * @return void
+	 */
+	public static function login_headerurl($login_header_url){
+		return home_url();
+	}
+
+	/**
+	 * @return string
+	 */
+	public static function one_p($text = '', $dot = true, $p = 'first'){
+        if(false === strpos($text, '.')){
+            if($dot){
+                $text .= '.';
+            }
+            return $text;
+        } else {
+            $text = sanitize_text_field($text);
+            $text = explode('.', $text);
+			$text = array_map('trim', $text);
+            $text = array_filter($text);
+            switch($p){
+                case 'first':
+                    $text = array_shift($text);
+                    break;
+                case 'last':
+                    $text = array_pop($text);
+                    break;
+                default:
+                    $p = absint($p);
+                    if(count($text) >= $p){
+                        $p --;
+                        $text = $text[$p];
+                    } else {
+                        $text = __('Error');
+                    }
+            }
+            if($dot){
+                $text .= '.';
+            }
+            return $text;
+        }
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function prepare($str = '', ...$args){
+        global $wpdb;
+		if(!$args){
+			return $str;
+		}
+		if(false === strpos($str, '%')){
+			return $str;
+		} else {
+			return str_replace("'", '', $wpdb->remove_placeholder_escape($wpdb->prepare($str, ...$args)));
+		}
+    }
+
+	/**
+	 * @return array
+	 */
+	public static function post_type_labels($singular = '', $plural = '', $all = true){
+        if(empty($singular)){
+            return [];
+        }
+        if(empty($plural)){
+            $plural = $singular;
+        }
+		return [
+            'name' => $plural,
+            'singular_name' => $singular,
+            'add_new' => 'Add New',
+            'add_new_item' => 'Add New ' . $singular,
+            'edit_item' => 'Edit ' . $singular,
+            'new_item' => 'New ' . $singular,
+            'view_item' => 'View ' . $singular,
+            'view_items' => 'View ' . $plural,
+            'search_items' => 'Search ' . $plural,
+            'not_found' => 'No ' . strtolower($plural) . ' found.',
+            'not_found_in_trash' => 'No ' . strtolower($plural) . ' found in Trash.',
+            'parent_item_colon' => 'Parent ' . $singular . ':',
+            'all_items' => ($all ? 'All ' : '') . $plural,
+            'archives' => $singular . ' Archives',
+            'attributes' => $singular . ' Attributes',
+            'insert_into_item' => 'Insert into ' . strtolower($singular),
+            'uploaded_to_this_item' => 'Uploaded to this ' . strtolower($singular),
+            'featured_image' => 'Featured image',
+            'set_featured_image' => 'Set featured image',
+            'remove_featured_image' => 'Remove featured image',
+            'use_featured_image' => 'Use as featured image',
+            'filter_items_list' => 'Filter ' . strtolower($plural) . ' list',
+            'items_list_navigation' => $plural . ' list navigation',
+            'items_list' => $plural . ' list',
+            'item_published' => $singular . ' published.',
+            'item_published_privately' => $singular . ' published privately.',
+            'item_reverted_to_draft' => $singular . ' reverted to draft.',
+            'item_scheduled' => $singular . ' scheduled.',
+            'item_updated' => $singular . ' updated.',
+        ];
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function remove_whitespaces($str = ''){
+		return trim(preg_replace('/[\n\r\s\t]+/', ' ', $str));
+    }
 
 	/**
 	 * @return string|WP_Error
@@ -459,16 +943,118 @@ class Helper {
 	}
 
 	/**
-	 * @return string|WP_Error
+	 * @return WP_Error|WP_User
 	 */
-	public static function upload_dir_to_url($path = ''){
-		$path = self::sanitize_upload_path($path);
-		if(is_wp_error($path)){
-			return $path;
+	static public function signon($username_or_email = '', $password = '', $remember = false){
+        if(is_user_logged_in()){
+            return wp_get_current_user();
+        } else {
+			add_filter('wordfence_ls_require_captcha', [__CLASS__, 'wordfence_ls_require_captcha']);
+            $user = wp_signon([
+                'remember' => $remember,
+                'user_login' => $username_or_email,
+                'user_password' => $password,
+            ]);
+			remove_filter('wordfence_ls_require_captcha', [__CLASS__, 'wordfence_ls_require_captcha']);
+			if(is_wp_error($user)){
+				return $user;
+			}
+            return wp_set_current_user($user->ID);
+        }
+    }
+
+	/**
+	 * @return WP_Error|WP_User
+	 */
+	static public function signon_without_password($username_or_email = '', $remember = false){
+        if(is_user_logged_in()){
+            return wp_get_current_user();
+        } else {
+			add_filter('authenticate', [__CLASS__, 'authenticate'], 10, 2);
+			add_filter('wordfence_ls_require_captcha', [__CLASS__, 'wordfence_ls_require_captcha']);
+            $user = wp_signon([
+                'remember' => $remember,
+                'user_login' => $username_or_email,
+                'user_password' => '',
+            ]);
+			remove_filter('wordfence_ls_require_captcha', [__CLASS__, 'wordfence_ls_require_captcha']);
+			remove_filter('authenticate', [__CLASS__, 'authenticate']);
+			if(is_wp_error($user)){
+				return $user;
+			}
+            return wp_set_current_user($user->ID);
+        }
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function str_split($str = '', $line_length = 55){
+        $str = sanitize_text_field($str);
+        $lines = ceil(strlen($str) / $line_length);
+        $words = explode(' ', $str);
+		if(count($words) <= $lines){
+			return $words;
 		}
-		$upload_dir = wp_get_upload_dir();
-		$basedir = wp_normalize_path($upload_dir['basedir']);
-		return str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $path);
+		$length = 0;
+		$index = 0;
+		$oputput = [];
+		foreach($words as $word){
+			$word_length = strlen($word);
+			if((($length + $word_length) <= $line_length) or empty($oputput[$index])){
+				$oputput[$index][] = $word;
+				$length += ($word_length + 1);
+			} else {
+				if($index < ($lines - 1)){
+					$index ++;
+				}
+				$length = $word_length;
+				$oputput[$index][] = $word;
+			}
+		}
+		foreach($oputput as $index => $words){
+			$oputput[$index] = implode(' ', $words);
+		}
+		return $oputput;
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function str_split_lines($str = '', $lines = 2){
+        $str = sanitize_text_field($str);
+        $words = explode(' ', $str);
+		if(count($words) <= $lines){
+			return $words;
+		}
+		$line_length = ceil(strlen($str) / $lines);
+		$length = 0;
+		$index = 0;
+		$oputput = [];
+		foreach($words as $word){
+			$word_length = strlen($word);
+			if((($length + $word_length) <= $line_length) or empty($oputput[$index])){
+				$oputput[$index][] = $word;
+				$length += ($word_length + 1);
+			} else {
+				if($index < ($lines - 1)){
+					$index ++;
+				}
+				$length = $word_length;
+				$oputput[$index][] = $word;
+			}
+		}
+		foreach($oputput as $index => $words){
+			$oputput[$index] = implode(' ', $words);
+		}
+		return $oputput;
+    }
+
+	/**
+	 * @return bool
+	 */
+	static public function wordfence_ls_require_captcha($required){
+		return false;
 	}
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
