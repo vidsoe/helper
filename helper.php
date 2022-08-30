@@ -20,7 +20,7 @@ class Helper {
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [];
+	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [], $hide_recaptcha_badge = false, $zoom_jwt = '';
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -646,6 +646,15 @@ class Helper {
     }
 
 	/**
+	 * @return void
+	 */
+	public static function hide_recaptcha_badge(){
+		if(!has_action('wp_head', [__CLASS__, 'wp_head'])){
+			add_action('wp_head', [__CLASS__, 'wp_head']);
+		}
+	}
+
+	/**
 	 * @return string
 	 */
 	public static function implode_and($array = [], $and = '&'){
@@ -669,6 +678,13 @@ class Helper {
 		$end = count($array) - 1;
 		return (array_keys($array) !== range(0, $end));
 	}
+
+	/**
+	 * @return bool
+	 */
+	public static function is_cloudflare(){
+        return !empty($_SERVER['CF-ray']);
+    }
 
 	/**
 	 * @return bool
@@ -931,18 +947,46 @@ class Helper {
 	/**
 	 * @return string
 	 */
+	public static function recaptcha_branding(){
+        return 'This site is protected by reCAPTCHA and the Google <a href="https://policies.google.com/privacy" target="_blank">Privacy Policy</a> and <a href="https://policies.google.com/terms" target="_blank">Terms of Service</a> apply.';
+    }
+
+	/**
+	 * @return string
+	 */
 	public static function remote_country(){
 		switch(true){
 			case !empty($_SERVER['HTTP_CF_IPCOUNTRY']):
 				$country = $_SERVER['HTTP_CF_IPCOUNTRY'];
 				break;
 			case is_callable(['wfUtils', 'IP2Country']):
-				$country = wfUtils::IP2Country(self::remote_ip());
+				$country = \wfUtils::IP2Country(self::remote_ip());
 				break;
 			default:
 				$country = '';
 		}
 		return strtoupper($country);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_delete($url = '', $args = []){
+        return self::remote_request('DELETE', $url, $args);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_get($url = '', $args = []){
+        return self::remote_request('GET', $url, $args);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_head($url = '', $args = []){
+        return self::remote_request('HEAD', $url, $args);
     }
 
 	/**
@@ -954,7 +998,7 @@ class Helper {
 				$ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
 				break;
 			case is_callable(['wfUtils', 'getIP']):
-				$ip = wfUtils::getIP();
+				$ip = \wfUtils::getIP();
 				break;
 			case !empty($_SERVER['HTTP_X_FORWARDED_FOR']):
 				$ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
@@ -979,11 +1023,39 @@ class Helper {
 			}
 			$ip = $ip[0];
 		}
-		if(!WP_Http::is_ip_address($ip)){
+		if(!\WP_Http::is_ip_address($ip)){
 			return '';
 		}
 		return $ip;
 	}
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_options($url = '', $args = []){
+        return self::remote_request('OPTIONS', $url, $args);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_patch($url = '', $args = []){
+        return self::remote_request('PATCH', $url, $args);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_post($url = '', $args = []){
+        return self::remote_request('POST', $url, $args);
+    }
+
+	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_put($url = '', $args = []){
+        return self::remote_request('PUT', $url, $args);
+    }
 
 	/**
 	 * @return array|string|WP_Error
@@ -1041,10 +1113,55 @@ class Helper {
 	}
 
 	/**
+	 * @return array|string|WP_Error
+	 */
+	public static function remote_trace($url = '', $args = []){
+        return self::remote_request('TRACE', $url, $args);
+    }
+
+	/**
 	 * @return string
 	 */
 	public static function remove_whitespaces($str = ''){
 		return trim(preg_replace('/[\n\r\s\t]+/', ' ', $str));
+    }
+
+	/**
+	 * @return array
+	 */
+	static public function sanitize_remote_args($args = []){
+        if(!is_array($args)){
+    		$args = wp_parse_args($args);
+    	}
+        if(self::seems_wp_http_request($args)){
+            return $args;
+        }
+    	return [
+    		'body' => $args,
+    	];
+    }
+
+	/**
+	 * @return int
+	 */
+	public static function sanitize_timeout($timeout = 0){
+        $timeout = (int) $timeout;
+        if($timeout < 0){
+            $timeout = 0;
+        }
+        $max_execution_time = (int) ini_get('max_execution_time');
+        if(0 !== $max_execution_time){
+            if(0 === $timeout or $timeout > $max_execution_time){
+                $timeout = $max_execution_time - 1;
+            }
+        }
+        // TODO: check for Cloudflare Enterprise
+        if(self::is_cloudflare()){
+            if(0 === $timeout or $timeout > 99){
+                $timeout = 99;
+            }
+        }
+        return $timeout;
     }
 
 	/**
@@ -1065,6 +1182,52 @@ class Helper {
 		}
 		return trailingslashit($dirname) . $basename;
 	}
+
+	/**
+	 * @return bool
+	 */
+	static public function seems_wp_http_request($args = [], $method_verification = false){
+        if(!is_array($args)){
+    		return false;
+    	}
+    	$wp_http_request_args = ['method', 'timeout', 'redirection', 'httpversion', 'user-agent', 'reject_unsafe_urls', 'blocking', 'headers', 'cookies', 'body', 'compress', 'decompress', 'sslverify', 'sslcertificates', 'stream', 'filename', 'limit_response_size'];
+    	$seems_wp_http_request = true;
+    	foreach(array_keys($args) as $arg){
+    		if(!in_array($arg, $wp_http_request_args)){
+    			$seems_wp_http_request = false;
+    			break;
+    		}
+    	}
+    	if(!$method_verification){
+    		return $seems_wp_http_request;
+    	}
+    	if(empty($args['method'])){
+    		return false;
+    	}
+    	return in_array($args['method'], ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'TRACE']);
+    }
+
+	/**
+	 * @return bool|WP_Error
+	 */
+	static public function seems_wp_error($error = []){
+		if(!self::array_keys_exist(['code', 'data', 'message'], $error)){
+			return false;
+		}
+		if(4 === count($error)){
+			if(!array_key_exists('additional_errors', $error)){
+				return false;
+			}
+		} else {
+			if(3 !== count($error)){
+				return false;
+			}
+		}
+		if(!$error['code'] or !$error['message']){
+			return false;
+		}
+		return new \WP_Error($error['code'], $error['message'], $error['data']);
+    }
 
 	/**
 	 * @return WP_Error|WP_User
@@ -1175,12 +1338,35 @@ class Helper {
     }
 
 	/**
+	 * @return void
+	 */
+	public static function wp_head(){
+		if(self::$hide_recaptcha_badge){?>
+			<style type="text/css">
+				.grecaptcha-badge {
+					visibility: hidden !important;
+				}
+			</style><?php
+		}
+	}
+
+	/**
 	 * @return bool
 	 */
 	static public function wordfence_ls_require_captcha($required){
 		return false;
 	}
 
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	//
+	// <!-- Zoom
+	//
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	//
+	// Zoom -->
+	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 }
