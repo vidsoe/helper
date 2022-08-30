@@ -20,7 +20,7 @@ class Helper {
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [], $hide_recaptcha_badge = false, $zoom_jwt = '';
+	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [], $enqueue_stylesheet = false, $hide_recaptcha_badge = false, $zoom_jwt = '';
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -456,6 +456,21 @@ class Helper {
     }
 
 	/**
+	 * @return string
+	 */
+	public static function current_time($type = 'U', $offset_or_tz = ''){ // If $offset_or_tz is an empty string, the output is adjusted with the GMT offset in the WordPress option.
+        if('timestamp' === $type){
+            $type = 'U';
+        }
+        if('mysql' === $type){
+            $type = 'Y-m-d H:i:s';
+        }
+        $timezone = $offset_or_tz ? self::timezone($offset_or_tz) : wp_timezone();
+        $datetime = new \DateTime('now', $timezone);
+        return $datetime->format($type);
+    }
+
+	/**
 	 * @return bool|WP_Error
 	 */
 	public static function custom_login_logo($attachment_id = 0, $half = true){
@@ -474,6 +489,17 @@ class Helper {
 			add_action('login_enqueue_scripts', [__CLASS__, 'login_enqueue_scripts']);
 		}
         return true;
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function date_convert($string = '', $fromtz = '', $totz = '', $format = 'Y-m-d H:i:s'){
+        $datetime = date_create($string, self::timezone($fromtz));
+        if($datetime === false){
+            return gmdate($format, 0);
+        }
+        return $datetime->setTimezone(self::timezone($totz))->format($format);
     }
 
 	/**
@@ -501,6 +527,13 @@ class Helper {
 				break;
 		}
 	}
+
+	/**
+	 * @return void
+	 */
+	public static function enqueue_stylesheet(){
+		self::$enqueue_stylesheet = true;
+    }
 
 	/**
 	 * @return WP_Error
@@ -848,6 +881,37 @@ class Helper {
 	public static function login_headerurl($login_header_url){
 		return home_url();
 	}
+
+	/**
+	 * @return array
+	 */
+	public static function offset_or_tz($offset_or_tz = ''){ // Default GMT offset or timezone string. Must be either a valid offset (-12 to 14) or a valid timezone string.
+        if(is_numeric($offset_or_tz)){
+            return [
+                'gmt_offset' => $offset_or_tz,
+                'timezone_string' => '',
+            ];
+        } else {
+            if(preg_match('/^UTC[+-]/', $offset_or_tz)){ // Map UTC+- timezones to gmt_offsets and set timezone_string to empty.
+                return [
+                    'gmt_offset' => intval(preg_replace('/UTC\+?/', '', $offset_or_tz)),
+                    'timezone_string' => '',
+                ];
+            } else {
+                if(in_array($offset_or_tz, timezone_identifiers_list())){
+                    return [
+                        'gmt_offset' => 0,
+                        'timezone_string' => $offset_or_tz,
+                    ];
+                } else {
+                    return [
+                        'gmt_offset' => 0,
+                        'timezone_string' => 'UTC',
+                    ];
+                }
+            }
+        }
+    }
 
 	/**
 	 * @return string
@@ -1338,10 +1402,45 @@ class Helper {
     }
 
 	/**
+	 * @return DateTimeZone
+	 */
+	public static function timezone($offset_or_tz = ''){
+        return new \DateTimeZone(self::timezone_string($offset_or_tz));
+    }
+
+	/**
+	 * @return string
+	 */
+	public static function timezone_string($offset_or_tz = ''){
+        $offset_or_tz = self::offset_or_tz($offset_or_tz);
+        $timezone_string = $offset_or_tz['timezone_string'];
+        if($timezone_string){
+            return $timezone_string;
+        }
+        $offset = floatval($offset_or_tz['gmt_offset']);
+        $hours = intval($offset);
+        $minutes = ($offset - $hours);
+        $sign = ($offset < 0) ? '-' : '+';
+        $abs_hour = abs($hours);
+        $abs_mins = abs($minutes * 60);
+        $tz_offset = sprintf('%s%02d:%02d', $sign, $abs_hour, $abs_mins);
+        return $tz_offset;
+    }
+
+	/**
+	 * @return void
+	 */
+	public static function wp_enqueue_scripts(){
+		if(self::$enqueue_stylesheet){
+			wp_enqueue_style(get_stylesheet(), get_stylesheet_uri(), [], filemtime(get_stylesheet_directory() . '/style.css'));
+		}
+	}
+
+	/**
 	 * @return void
 	 */
 	public static function wp_head(){
-		if(self::$hide_recaptcha_badge){?>
+		if(self::$hide_recaptcha_badge){ ?>
 			<style type="text/css">
 				.grecaptcha-badge {
 					visibility: hidden !important;
