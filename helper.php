@@ -2,13 +2,13 @@
 /**
  * Vidsoe Helper
  *
- * A collection of useful static methods for your WordPress plugins and theme's functions.php
+ * A collection of useful methods for your WordPress plugins and themes.
  *
  * @author Vidsoe
  * @copyright Vidsoe
  * @license GPL2 https://www.gnu.org/licenses/gpl-2.0.html
  * @link https://github.com/vidsoe/helper
- * @version 0.8.27
+ * @version 0.8.30
  *
  * Do not forget to rename 'your_namespace' to whatever you want!
  */
@@ -20,7 +20,7 @@ class Helper {
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [], $enqueue_stylesheet = false, $hide_recaptcha_badge = false, $zoom_jwt = '';
+	private static $admin_notices = [], $cf7_posted_data = [], $custom_login_logo = [], $enqueue_js = false, $enqueue_stylesheet = false, $hide_recaptcha_badge = false;
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
@@ -118,8 +118,11 @@ class Helper {
 	 * @return string
 	 */
    	public static function canonicalize($key = ''){
+		//$key = strtolower($key);
         $key = sanitize_title($key);
-        return \WP_REST_Request::canonicalize_header_name($key);
+        //return \WP_REST_Request::canonicalize_header_name($key);
+		$key = str_replace('-', '_', $key);
+		return $key;
     }
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -526,6 +529,13 @@ class Helper {
 				wp_enqueue_style($handle, $src, $deps, $ver);
 				break;
 		}
+	}
+
+	/**
+	 * @return void
+	 */
+	public static function enqueue_js(){
+		self::$enqueue_js = true;
 	}
 
 	/**
@@ -1431,8 +1441,13 @@ class Helper {
 	 * @return void
 	 */
 	public static function wp_enqueue_scripts(){
+		if(self::$enqueue_js){
+			//wp_enqueue_style(get_stylesheet(), get_stylesheet_uri(), [], filemtime(get_stylesheet_directory() . '/style.css'));
+			self::local_enqueue(str_replace('_', '-', strtolower(__NAMESPACE__)) . '-helper', plugin_dir_path(__FILE__) . 'helper.js', ['jquery']);
+		}
 		if(self::$enqueue_stylesheet){
-			wp_enqueue_style(get_stylesheet(), get_stylesheet_uri(), [], filemtime(get_stylesheet_directory() . '/style.css'));
+			//wp_enqueue_style(get_stylesheet(), get_stylesheet_uri(), [], filemtime(get_stylesheet_directory() . '/style.css'));
+			self::local_enqueue(get_stylesheet(), get_stylesheet_directory() . '/style.css');
 		}
 	}
 
@@ -1461,6 +1476,8 @@ class Helper {
 	// <!-- Zoom
 	//
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//
